@@ -44,7 +44,7 @@ description: 多 Agent Ping-Pong 审查执行闭环——生成方与审查方 S
   ↓
 阶段 2：原子执行 — 按最终方案执行，每步前读文件、每步后 grep 验证
   ↓
-阶段 3：闭环 — closure-knowledge-distillation 知识沉淀
+阶段 3：闭环 — closure-knowledge-distillation 知识沉淀（可选，未安装则跳过）
 ```
 
 **关键**：阶段 1 是循环——生成→审查→改进→再审→直到收敛。收敛后才进入阶段 2。主 agent 不参与生成或审查内容，仅做调度（见 §9）。
@@ -319,7 +319,7 @@ P0/P1 用于判断收敛（见 §18），P2 不阻止收敛。
 
 ## 21. 执行后闭环
 
-审查+执行完成后 → 调用 `closure-knowledge-distillation`。
+审查+执行完成后 → 如已安装 `closure-knowledge-distillation`，调用之；未安装则跳过阶段 3。
 
 - L1：单文件小改动，~20 行知识卡
 - L2：多文件审查，完整 12 节 Markdown
