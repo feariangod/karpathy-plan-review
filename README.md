@@ -8,6 +8,8 @@
 
 **LLMs write plans. Plans have blind spots. Blind spots become bugs. This skill makes sure they don't.**
 
+**大模型写计划。计划有盲区。盲区变 bug。这个 skill 确保它们不会。**
+
 </div>
 
 ---
@@ -169,6 +171,50 @@ These two skills are complementary, not alternatives. `karpathy-guidelines` is t
 | **Do-not-change** | Avoids touching unrelated code | Explicit do-not-change list with reasons |
 
 **Use both.** `karpathy-guidelines` keeps your code clean day-to-day. `karpathy-plan-review` ensures your plans survive adversarial scrutiny before you invest tokens in execution.
+
+## 中文概述
+
+### 解决什么问题
+
+当你让 Claude Code 执行多文件改动时，它写计划、然后执行。但问题是——**Agent 自己审自己的计划**。同样的盲区既产出了计划、又在审查它，结果是：计划看似靠谱，执行到第三步就断了。
+
+### 怎么解决
+
+**两个 Agent，交替审查，硬收敛标准，零自审。**
+
+| 角色 | 职责 | 约束 |
+|------|------|------|
+| **生成方** | 产出方案，每个关键决策脑暴 ≥3 个备选 | 绝不审查自己的输出 |
+| **审查方** | 用 Karpathy 四原则审查方案，发现 P0/P1/P2 问题 | 只找问题，不提方案 |
+
+两者交替迭代，直到**连续 2 轮零新 P0/P1 发现**，才算收敛。收敛后才进入原子执行——每步前读文件、每步后 grep 验证。
+
+### 核心特点
+
+- **独立视角**：生成方和审查方是独立 Subagent，消除自审盲区
+- **硬收敛**：2 轮连续零新 P0/P1，不靠感觉
+- **grep 可验证**：所有成功标准都是 `grep`/`awk`/`wc` 命令，可机械检查
+- **最多 5 轮**：不收敛则强制停止，标记"需人工判断"
+- **不改项清单**：显式追踪"不改什么"及理由，防止审查方重复发现同一问题
+- **假设显式化**：每轮产出假设清单，"没有假设"不是有效答案
+- **证据分级**：高/中/低三级，不编造确定性
+
+### 与 karpathy-guidelines 的关系
+
+| | karpathy-guidelines | karpathy-plan-review |
+|---|---|---|
+| 对象 | 代码（单行/单函数/单文件） | 计划/方案（多步骤/多文件） |
+| 时机 | 写代码时 | 写计划后、执行前 |
+| 机制 | 四原则行为指导 | 多 Agent Ping-Pong + 收敛 + grep 验证 |
+
+互补关系，非替代。日常编码用前者，多步骤执行前用本 skill。
+
+### 依赖
+
+- **核心**：`karpathy-guidelines`（审查方审查框架）+ `superpowers`（生成方自动路由）
+- **可选**：`closure-knowledge-distillation`（阶段 3 知识沉淀，未安装则跳过）
+
+---
 
 ## Anti-Patterns
 
