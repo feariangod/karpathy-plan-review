@@ -1,328 +1,394 @@
 ---
-name: karpathy-plan-review
-description: 多 Agent Ping-Pong 审查执行闭环——生成方与审查方 Subagent 交替迭代，Karpathy 四原则逐轮审查直到收敛，原子执行并 grep 硬条件验证。当系统处于计划模式（Plan mode is active）、用户写计划文件、或使用 EnterPlanMode 时自动调用。也适用于任何多步骤复杂任务：审查计划、review plan、代码审查、多步骤实施前、Karpathy review。
+name: plan-review
+description: Use when reviewing or executing plans, complex multi-step tasks, code or handoff reviews, plan mode, multi-file changes, ID/reference changes, or tasks that need plan review before execution.
 ---
 
-# Karpathy Plan Review — 多 Agent Ping-Pong 审查执行
+# Plan Review — Five-Agent Objective-Aligned Loop
 
-生成方和审查方两个 Subagent 独立运行，通过输出接口对话，轮流迭代直到方案收敛，然后自动原子执行并闭环。**主 agent 不参与内容生成或审查，仅做调度。**
+Core principle: **the task total goal is the single source of truth**. Every agent receives the same task goal, success criteria, scope boundaries, and permission boundaries before doing any work. The skill runs a five-agent loop: Task Recognition Agent / 任务识别 Agent, Supervisor Agent / 监督 Agent, Plan Agent / 方案 Agent, Review Agent / 审查 Agent, and Execution Agent / 执行 Agent.
 
-## 1. 触发场景
+The agents share the same capability base, but not the same responsibilities. Every agent may call relevant superpower skills, must understand `karpathy-guidelines`, must apply Karpathy thinking, and must understand this skill's P0/P1/P2, convergence, grep verification, reread, and failure-recovery rules.
 
-- 用户说"审查这个计划""review this plan""Karpathy review"
-- 代码审查或 handoff 审查任务
-- 多步骤实施任务执行前
-- 计划中涉及多文件改动、ID 变更、跨文件引用
-- **任何多步骤复杂任务——无需用户显式说"审查计划"，本 skill 自行判断并启动 Ping-Pong 循环**
+## 1. Trigger Cases
 
-## 2. 与 karpathy-guidelines 的关系
+Use this skill when any of these are true:
 
-| | karpathy-guidelines | karpathy-plan-review |
+- The system is in plan mode, the user writes a plan, or the user asks for `Karpathy review`.
+- The task is multi-step, multi-file, or changes IDs, schemas, paths, references, handoff contracts, or control rules.
+- A plan, implementation route, code review, handoff, or execution sequence needs risk review before execution.
+- The task has implicit requirements, unclear success criteria, permission boundaries, or high risk of drifting from the user's real goal.
+
+Simple tasks still pass through the task goal and review gates, but the plan can be compact.
+
+## 2. Shared Task Envelope / 共享任务信封
+
+Before starting any agent, the Supervisor Agent must pass a shared task envelope. If any agent does not receive it, that agent stops and asks the Supervisor Agent to resend it.
+
+Required fields:
+
+```text
+Task total goal:
+Success criteria:
+Scope boundaries:
+Permission and capability boundaries:
+Source context and evidence:
+Current round state:
+Previous review findings:
+```
+
+Every agent output must start with a short `Goal alignment` statement explaining how its work relates to the task total goal. Missing goal alignment is at least P1; if it could cause wrong execution, it is P0.
+
+## 3. All-Agent Capability Base / 全员能力底座
+
+Every agent has these capabilities and obligations:
+
+1. **Superpower skill access** — Each agent may call the most relevant superpower skill for its own responsibility, such as `brainstorming`, `systematic-debugging`, `test-driven-development`, `source-quality-review`, `closure-knowledge-distillation`, or another matching skill.
+2. **Karpathy guidelines access** — Each agent must apply `karpathy-guidelines`: Think Before Coding, Simplicity First, Surgical Changes, and Goal-Driven Execution.
+3. **Plan review access** — Each agent must understand this skill's role boundaries, P0/P1/P2 taxonomy, convergence gates, grep-able verification, reread-before-edit rule, and failure-recovery loop.
+4. **Task total goal awareness** — Each agent must know and reference the task total goal. Any output that cannot be traced to the task total goal is invalid.
+5. **Role discipline** — Shared capability does not erase role boundaries. An agent may use skills to improve its own job, but must not perform another agent's job.
+
+## 4. Core Flow
+
+```text
+User input
+  ↓
+Task Recognition Agent / 任务识别 Agent
+  - reads all received information
+  - converts it into the task total goal
+  - defines success, scope, and permission boundaries
+  ↓
+Shared Task Envelope
+  - passed to every later agent
+  ↓
+Supervisor Agent / 监督 Agent
+  - dispatches Plan Agent / 方案 Agent and Review Agent / 审查 Agent
+  - verifies both are truly following the rules
+  ↓
+Plan/Review Ping-Pong
+  - Plan Agent / 方案 Agent proposes the best plan
+  - Review Agent / 审查 Agent finds P0/P1/P2 risks only
+  - repeat until convergence
+  ↓
+Execution Agent / 执行 Agent
+  - reviews final plan against the task total goal
+  - returns misaligned plans to Supervisor Agent
+  - executes only aligned and converged plans
+  ↓
+Stop or close
+  - stop at human authorization, permission, compliance, missing data, or capability boundaries
+  - otherwise close with verification and knowledge distillation
+```
+
+No execution is allowed before the Execution Agent confirms that the final plan is aligned with the Task Recognition Agent's task total goal.
+
+## 5. Task Recognition Agent / 任务识别 Agent
+
+The Task Recognition Agent does exactly one job: deeply understand all received information and convert it into the task total goal.
+
+Responsibilities:
+
+- Read the user request, local rules, referenced files, prior plan text, relevant logs, and available context needed to identify the true task.
+- Distinguish explicit requirements, implicit requirements, assumptions, constraints, and permission boundaries.
+- Produce the shared task envelope.
+- Treat the task total goal as the authority for all later planning, review, and execution.
+
+Output format:
+
+```text
+Goal alignment: Identifying the task total goal from the received information.
+Task total goal:
+Success criteria:
+Scope boundaries:
+Permission and capability boundaries:
+Source context and evidence:
+Assumptions:
+```
+
+Boundaries:
+
+- Do not generate an implementation plan.
+- Do not review plan quality.
+- Do not execute.
+- If the received information is insufficient to form a safe task total goal, stop and mark the missing information.
+
+## 6. Supervisor Agent / 监督 Agent
+
+The Supervisor Agent does exactly one job: supervise the loop from task total goal to final best plan.
+
+Responsibilities:
+
+- Pass the shared task envelope to every agent.
+- Dispatch the task total goal to the Plan Agent and Review Agent.
+- Ensure the Plan Agent and Review Agent are both using the all-agent capability base.
+- Ensure every Plan Agent revision responds to every open P0/P1/P2.
+- Ensure every Review Agent report checks against the task total goal.
+- Maintain the round ledger.
+- Detect deadlock, repeated ignored findings, or role violations.
+
+Supervisor Agent must not:
+
+- Generate the plan.
+- Rewrite the plan.
+- Produce review findings.
+- Execute.
+
+Round ledger format:
+
+```text
+Round N:
+Task total goal:
+Plan version:
+P0 count:
+P1 count:
+P2 count:
+Open unchanged findings:
+Plan response completeness:
+Review goal-alignment completeness:
+Decision: continue / converged / stop for human judgment
+```
+
+If any agent output lacks the task total goal, violates its role, or skips required skill/Karpathy reasoning, the Supervisor Agent rejects that output and reruns the round.
+
+## 7. Plan Agent / 方案 Agent
+
+The Plan Agent does exactly one job: produce the best plan aligned to the task total goal.
+
+Responsibilities:
+
+- Use the shared task envelope as the plan authority.
+- Call relevant superpower skills when they materially improve the plan.
+- Apply Karpathy four-principle reasoning to each key decision.
+- Produce a plan with fix/change list, execution steps, verification checks, and explicit non-changes.
+- Respond to every P0/P1/P2 from the Review Agent in the next plan version.
+
+Minimum plan format:
+
+```text
+Goal alignment:
+Plan version:
+Task total goal:
+Fix/change list:
+Execution steps:
+Verification checks:
+Non-changes with reasons:
+Assumptions:
+Response to prior P0/P1/P2:
+```
+
+Three-step selection method:
+
+1. Brainstorm alternatives: first plan has at least 3 alternatives; improvement rounds have at least 2.
+2. Review each alternative with Think Before Coding, Simplicity First, Surgical Changes, and Goal-Driven Execution.
+3. Choose the best alternative and briefly record why the rejected alternatives lost.
+
+Boundaries:
+
+- Do not mark the plan converged.
+- Do not review your own plan as the final review.
+- Do not execute.
+
+## 8. Review Agent / 审查 Agent
+
+The Review Agent does exactly one job: find risks in the plan. It does not generate replacement plans.
+
+Responsibilities:
+
+- Review the plan against the task total goal and success criteria.
+- Apply `karpathy-guidelines` and relevant superpower skills for risk discovery.
+- Classify every issue as P0, P1, or P2.
+- Attach evidence strength to every finding.
+- Check normal paths, edge cases, failure paths, implicit requirements, and permission boundaries.
+- Decide whether another review round is required.
+
+Output format:
+
+```text
+Goal alignment:
+Reviewed plan version:
+P0 list:
+P1 list:
+P2 list:
+Current assumptions:
+Non-change review:
+Evidence strength notes:
+Decision: next round required / convergence candidate / stop for human judgment
+```
+
+Role boundary:
+
+- Find problems.
+- Do not generate alternative plans.
+- Do not rewrite the plan.
+- Do not execute.
+
+## 9. Execution Agent / 执行 Agent
+
+The Execution Agent does exactly one job: align the final plan with the task total goal, then execute only if aligned and permitted.
+
+Pre-execution gate:
+
+```text
+Goal alignment:
+Task total goal:
+Final plan version:
+Convergence evidence:
+Alignment verdict: aligned / misaligned
+Permission verdict: permitted / stop
+Capability verdict: capable / stop
+```
+
+Rules:
+
+- If the final plan is misaligned with the task total goal, return it to the Supervisor Agent and do not execute.
+- If convergence evidence is missing or any P0/P1/P2 remains open without valid closure, return it to the Supervisor Agent.
+- If execution requires human authorization, production access, irreversible action, money, contracts, compliance judgment, missing data, or capability outside the agent's ability, stop and state the exact authorization or assistance needed.
+- If permitted, execute atomically: reread before edits, make surgical changes, verify after each step, and run all final checks.
+
+The Execution Agent may call superpower skills for execution quality, debugging, testing, verification, or closure, but must keep execution scoped to the converged plan.
+
+## 10. P0/P1/P2 Severity
+
+| Level | Meaning | Action |
 |---|---|---|
-| 审查对象 | 代码（单行/单函数/单文件） | 计划/方案/设计（多步骤/多文件/多决策） |
-| 执行时机 | 写代码时 | 写计划后、执行前 |
-| 核心机制 | 四原则行为指导 | 多 Agent Ping-Pong + 四原则 + 收敛循环 + grep 验证 |
-| 验证方式 | 测试驱动（write test → make pass） | grep 硬条件（grep/awk/wc 可检查） |
-| 不改项 | 不碰无关代码 | 不改项列表（附理由，显式化） |
-| 角色 | **本 skill 审查方的核心审查框架** | 调度方（主 agent）+ 生成方 + 审查方 |
+| P0 | Blocks execution: wrong task goal, data loss, unreadable file, destructive action, unresolved permission boundary, invalid plan structure | Must fix before execution |
+| P1 | Risk or confusion: ambiguous scope, missing evidence, incomplete response to review, unclear audit path, goal drift risk | Must fix before convergence |
+| P2 | Quality or clarity issue: naming inconsistency, incomplete machine-readable fields, weak wording, minor traceability gap | Must close before convergence |
 
-互补关系，非替代。`karpathy-guidelines` 用于日常编码，本 skill 用于多 agent 协作审查与执行。**karpathy-guidelines 是本 skill 审查方 Subagent 的核心审查框架。**
+P2 is still a convergence risk. A P2 can close only by being fixed or by entering an evidence-backed non-change list that proves it does not affect the task total goal, execution safety, verification, or traceability.
 
-## 3. 核心流程（多 Agent Ping-Pong）
+## 11. Convergence Rules
 
-```
-用户任务
-  ↓
-阶段 0：探索 — Explore agent 读完全部目标文件，不凭记忆
-  ↓
-阶段 1：Ping-Pong 循环
-  ├─ 生成方 Subagent（内置路由 + 三步选优法 → 产出方案）
-  ├─ 审查方 Subagent（karpathy-guidelines 四原则 + 完整度检查 → 分级发现清单）
-  ├─ 审查方判断是否需要下一轮（非生成方判断）
-  ├─ 还有 P0/P1？→ 生成方接收审查报告 → 脑暴改进方向 → 改进 → 再审
-  └─ 收敛（连续 2 轮零新 P0/P1）→ 进入阶段 2
-  ↓
-阶段 2：原子执行 — 按最终方案执行，每步前读文件、每步后 grep 验证
-  ↓
-阶段 3：闭环 — closure-knowledge-distillation 知识沉淀（可选，未安装则跳过）
-```
+Convergence requires all of these:
 
-**关键**：阶段 1 是循环——生成→审查→改进→再审→直到收敛。收敛后才进入阶段 2。主 agent 不参与生成或审查内容，仅做调度（见 §9）。
+- The shared task envelope is present in every agent output.
+- Every agent output includes goal alignment.
+- The Plan Agent has responded to every P0/P1/P2.
+- The Review Agent reports zero new P0/P1/P2 for two consecutive rounds (`连续 2 轮零新 P0/P1/P2`).
+- Any remaining non-change item has evidence and does not affect the task total goal, execution safety, verification, or traceability.
+- The Supervisor Agent confirms the Plan Agent and Review Agent followed their roles.
 
-## 4. 四原则应用于计划（非代码）
+Hard stops:
 
-### 1. Think Before Coding → 审计划时
-- 逐项列出计划中的未声明假设（行号、文件存在性、跨文件引用、列值映射）
-- 每轮审查产出"当前假设清单"
-- 不可验证的假设 → 升级为风险项
+- After round 5 without convergence, stop and mark `needs human judgment`.
+- If the same P0 appears in two consecutive rounds without a real Plan Agent response, stop and mark `deadlock`.
+- If the task total goal changes materially, return to the Task Recognition Agent and create a new shared task envelope.
 
-### 2. Simplicity First → 审计划时
-- 是否过度设计？改动项是否超过必要范围？
-- 有无"以防万一"的额外步骤？砍掉
-- 工具调用次数是否可合并？（见 §14 编辑策略决策树）
+Simple tasks may use compact outputs, but may not skip task recognition, at least one review, or execution goal-alignment review.
 
-### 3. Surgical Changes → 审计划时
-- 每项改动是否可追溯到用户决策？
-- 中间无关行是否被不动？
-- 是否碰了不改的文件？
+## 12. Non-Change Management
 
-### 4. Goal-Driven Execution → 审计划时
-- 验证条件是否 grep-able？（非描述性如"看起来正确"）
-- 每步是否有可机械检查的成功标准？
-- 验证失败会怎样？（见 §19 失败恢复）
+Every plan and review must track non-changes. Non-change means "known and intentionally not changed", not "forgotten".
 
-## 5. 探索先行
+Each non-change item must include:
 
-审查计划前必须先读完所有目标文件。不允许凭记忆或缓存读取。
-
-- 用 Explore agent 并行读取 → 结构化报告 → 交叉验证
-- 规则：未见文件不发表结论
-- P0/P1 发现必须来自直接读取，不接受推断
-
-## 6. 计划最低标准
-
-只有含以下三要素的计划才进入审查：
-
-1. **修复清单** — 每项含文件路径、行号、问题描述、修复动作
-2. **执行步骤** — 每步含执行前检查、编辑方式（Edit/Write）、验证命令
-3. **验证条件** — grep 可机械检查（不依赖人眼确认）
-
-不满足 → 退回头脑风暴补充，不进入审查循环。
-
-## 7. 生成方 Subagent
-
-生成方是独立的 Subagent，负责产出方案。主 agent 不参与方案内容。
-
-### 内置路由
-
-生成方根据任务类型，自行选择最适合的 superpowers skill：
-- 含 bug/报错/异常 → `systematic-debugging`
-- 构建/设计/新增功能 → `brainstorming`
-- 涉及测试先行 → `test-driven-development`
-- 以上均不匹配 → 不调用特定 skill，直接基于 Karpathy 四原则生成方案
-
-调用方式：生成方收到任务后，自行调用 `Skill` 工具加载对应的 superpowers skill。
-
-### 产出格式（必须含三要素）
-
-```
-1. 修复清单 — 每项含文件路径、问题描述、修复动作
-2. 执行步骤 — 每步含执行前检查、编辑方式（Edit/Write）、验证命令
-3. 验证条件 — grep 可机械检查（不依赖人眼确认）
+```text
+Item:
+Location:
+Reason:
+Evidence:
+Impact on task total goal:
+Impact on verification:
 ```
 
-### 三步选优法（内化到生成方）
+If a P2 is closed as a non-change, the evidence must show why it does not affect the task total goal, execution safety, verification, or traceability.
 
-每个关键决策必须走三步：
-1. **脑暴备选方案** — 首次生成 ≥3 个备选，改进轮次 ≥2 个。不同策略、不同权衡点，不得提前过滤
-2. **Karpathy 四原则逐案审查** — 每个方案过一遍 Think/Simplicity/Surgical/Goal-Driven，标注优劣
-3. **选最优进入方案** — 胜出方案写入，落选方案记录简因（为何不选），供后续回溯
+## 13. Assumptions and Evidence Strength
 
-少于最低备选数 = 未探索充分。
+Every round must list current assumptions. Assumptions are handled this way:
 
-### 收到审查方反馈后的改进模式
+- Verified assumptions are removed.
+- Unverified assumptions become P1 or P2 depending on impact.
+- Disproved assumptions update the shared task envelope or force a new Task Recognition Agent pass.
 
-- 逐条回应每个 P0/P1 发现（修复 / 反驳并附理由 / 标记不改并附理由）
-- 对每个问题脑暴 ≥2 个改进方向，四原则审查后选最优
-- 标注改进轮次和变更摘要
-- 未回应即视为遗漏，审查方下轮会再次标记
+Evidence strength:
 
-## 8. 审查方 Subagent
+| Strength | Meaning | Example |
+|---|---|---|
+| High | Direct file read, grep output, command output, user-provided text | `grep -c 'ID' file` returned `1` |
+| Medium | Logical inference from observed patterns | A term likely causes ambiguity |
+| Low | Hypothesis or unverified possibility | A path may be referenced elsewhere |
 
-审查方是独立的 Subagent，固定在 karpathy-guidelines 四原则框架下审查。**只找问题，不生成替代方案。** 替代方案是生成方的职责。
+Do not invent evidence. Mark uncertain claims as `needs confirmation`.
 
-### 审查维度
+## 14. Grep and Reference Integrity
 
-1. **Think Before Coding** — 方案的假设是否显式化？遗漏了什么？
-2. **Simplicity First** — 是否过度设计？有没有更简单的方案？
-3. **Surgical Changes** — 每项改动是否必要？是否触碰了不改的文件？
-4. **Goal-Driven Execution** — 验证条件是否 grep-able？
+Before changing any ID, term, path, schema, or cross-file reference:
 
-### 额外必查项
+- Run grep/rg to find the impact radius.
+- Record expected changes and intentional non-changes.
+- Do not change what you have not inspected.
 
-对照原始用户需求，逐条检查方案是否覆盖：
-- 正常场景
-- 边界条件
-- 异常路径
-- 用户未明说但隐含的需求
+After changes:
 
-### 输出格式
+- Run grep/rg to confirm no dangling references.
+- Preserve historical logs and ledgers unless the task total goal explicitly requires changing them.
 
-```
-P0 清单（阻塞执行的问题）— 每项含文件/章节引用 + 证据强度
-P1 清单（有风险/令人困惑的问题）— 每项含文件/章节引用 + 证据强度
-P2 清单（质量/清晰度问题）— 每项含文件/章节引用 + 证据强度
-当前假设清单（至少 1 项，不写"没有问题"）
-不改项确认（检查生成方标记的不改项是否合理）
+Verification pattern library:
 
-判断：是否需要下一轮审查
-  - 本轮有 ≥1 个新 P0/P1 → 需要
-  - 本轮零新 P0/P1 且上一轮也零新 → 连续 2 轮零新，不需要（收敛）
-  - 本轮零新 P0/P1 但上一轮有 P0/P1 → 需要（仅连续 1 轮）
-```
+| Check type | Command pattern | Expected result |
+|---|---|---|
+| Unique ID | `grep -c 'ID' file` | `1` |
+| Removed term | `grep -c 'old term' file` | `0` |
+| Required term | `grep -c 'new term' file` | `>=1` |
+| Cross-reference | `grep -rl 'ID' --exclude='source' .` | Matches intended files |
+| Markdown table columns | `awk -F'|' '{print NF-1}' file` | Consistent target rows |
 
-### 职责边界
+## 15. Execution Discipline
 
-- ✅ 找问题、标证据强度、列假设、判收敛
-- ❌ 不生成替代方案、不修改方案、不执行
-- ⚠️ 审查方连续两轮产出相同 P0 → 主 agent 介入仲裁（生成方可能未正确回应）
+Execution is atomic and surgical:
 
-## 9. Ping-Pong 循环控制
+- Reread the exact target lines immediately before editing.
+- Do not trust cached line numbers.
+- Prefer the smallest edit that accomplishes the plan.
+- Do not refactor adjacent material unless it is part of the converged plan.
+- Verify each step before moving to the next.
 
-主 agent 的调度逻辑——**不参与内容，仅做机械调度和记录**。
+Editing strategy:
 
-### 调度步骤
-
-```
-1. 发起生成方 Agent
-   传入：原始用户需求 + 项目上下文（文件路径、相关代码等）
-   接收：方案（含修复清单 + 执行步骤 + 验证条件）
-
-2. 发起审查方 Agent
-   传入：原始用户需求 + 方案全文 + 上一轮审查报告（如有）
-   接收：审查报告（含 P0/P1/P2 清单 + 假设清单 + 是否需要下一轮的判断）
-
-3. 审查方判断"不需要下一轮" → 收敛，进入阶段 2（执行）
-
-4. 审查方判断"需要下一轮" → 将审查报告全文传给新的生成方 Agent → 回到步骤 1
-   （注意：每轮是新的生成方 Agent，不保留上一轮的上下文）
-
-5. 第 5 轮后仍未收敛 → 强制停止，标记"需人工判断"，不允许进入执行
+```text
+Same file with many changes?
+  Whole table or every row changes -> rewrite the smallest complete table/block.
+  Distant blocks change -> multiple targeted edits.
+  One continuous block changes -> one block edit.
+  One line changes -> one line edit.
 ```
 
-### 每轮记录（主 agent 维护，仅记录不需用户确认）
+## 16. Failure Recovery
 
-```
-轮次 N：P0=X, P1=Y, P2=Z | 变更摘要：<一句话>
-```
+If verification fails:
 
-### 特殊规则
+1. Locate the root cause by reading current files and command output.
+2. Fix only the failed item, keeping the task total goal and converged plan in scope.
+3. Rerun all verification checks.
 
-- **审查方连续两轮产出相同 P0** → 生成方可能未正确回应审查反馈 → 主 agent 介入：向用户报告死锁情况，让用户决定方向
-- **审查方判断任务简单到一轮够** → 可一轮过（审查方自行判断，非生成方判断 → 消除自我监督悖论）
+Do not automatically revert partial success. Do not expand scope to "clean up" unrelated issues.
 
-## 10. 不改项管理
+If the failure reveals the plan was wrong, return to the Supervisor Agent. If it reveals the task total goal was wrong or incomplete, return to the Task Recognition Agent.
 
-每次审查产出"不改"列表，与修复列表并列。
+## 17. Anti-Patterns
 
-每项含：文件、问题、不改的理由。
-规则：**不改 ≠ 不写** — 必须写下理由，否则下次审查会重复发现同一问题。
+| Anti-pattern | Correct behavior |
+|---|---|
+| "The task is clear, skip task recognition" | Always create the task total goal first |
+| "Only Plan Agent needs skills" | Every agent has superpower and Karpathy capability |
+| "Supervisor can fix the plan directly" | Supervisor rejects and reruns; Plan Agent fixes |
+| "Review Agent should suggest the better plan" | Review Agent finds risks only |
+| "P2 is cosmetic, let it pass" | P2 must be fixed or evidence-closed |
+| "One clean review is enough" | Need two consecutive zero-new P0/P1/P2 rounds |
+| "Execute and adjust as needed" | Execution only follows the converged, aligned plan |
+| "Permission is probably fine" | Stop at authorization, compliance, production, money, contract, or capability boundaries |
 
-示例：
-| # | 文件 | 问题 | 不改的理由 |
-|---|------|------|-----------|
-| Q7 | changelog.md | 条目时间乱序 | 追加顺序是审计证据，重排销毁信息 |
+## 18. Closure
 
-## 11. 假设显式化
+After successful review and execution, call `closure-knowledge-distillation` when the result has reusable value.
 
-每轮审查产出"当前假设清单"。执行前逐项验证：
+Closure artifact should include:
 
-- 已验证 → 移除
-- 未验证 → 升级为风险项
-- 已推翻 → 立即更新计划
-
-规则：**不写"没有问题"——这是最大的问题。** 每轮至少有 1 个假设，否则说明审查不够深入。
-
-## 12. 证据强度标注
-
-每个发现标来源强度：
-
-| 强度 | 含义 | 示例 |
-|------|------|------|
-| 高 | 直接读取文件、grep 输出、用户确认 | `grep -c 'SYNC-20260604-014'` → 2 |
-| 中 | 逻辑推断、模式匹配 | "此措辞可能导致解析歧义" |
-| 低 | 假设、猜测、未验证 | "这个 ID 可能被其他文件引用" |
-
-不确定标"待确认"。不编造证据。
-
-## 13. P0/P1/P2 严重度分类
-
-| 等级 | 含义 | 行动 |
-|------|------|------|
-| **P0** | 阻塞执行：重复 ID、数据破坏、文件不可读、表格断裂 | 必须修复后才能进入阶段 2（执行） |
-| **P1** | 有风险/令人困惑：遗留术语、措辞含糊、未标记取代、缺少审计路径 | 需修复，不阻止执行但需在执行前修完 |
-| **P2** | 质量/清晰度：命名约定缺失、措辞不一致、缺机器可读字段 | 建议修复，可推迟，不阻止收敛 |
-
-P0/P1 用于判断收敛（见 §18），P2 不阻止收敛。
-
-## 14. 编辑策略决策树
-
-```
-同一文件多项改动？
-├─ 全表每行都需改（如加列） → 读全文件 → 一次 Write
-├─ 改动分在不相邻区块 → 多次 Edit（中间无关行不动）
-├─ 单一连续区块 → 一次 Edit 匹配区块
-└─ 单行 → 一次 Edit
-```
-
-根原则：**最小触碰半径**。不因"方便"而重写无关行。
-
-## 15. 验证硬化模式库
-
-所有验证条件必须可机械化检查。标准模式：
-
-| 检查类型 | 命令模式 | 预期 |
-|---------|---------|------|
-| 唯一 ID | `grep -c 'ID' file` | `1` |
-| 列数一致 | `awk -F'|' '{print NF-1}'` | 全行相同 |
-| 跨文件引用 | `grep -rl 'ID' --exclude='自身'` | 确认意图 |
-| 遗留术语清零 | `grep -c '旧术语' file` | `0` |
-| 表头存在 | `grep -c '新列名' file` | `≥1` |
-| 空行检查 | 相邻行连续无空行 | 逐行确认 |
-
-## 16. grep 前探与跨文件引用完整性
-
-**改前**：任何 ID、术语、文件路径变更前 → `grep` 全项目了解影响半径。
-- 规则：不知道有多少处引用就不改
-
-**改后**：`grep -rl 'ID' --exclude='自身'` 确认无悬空引用。
-- 发现外部引用指向变更目标 → 同步更新
-- 例外：历史日志（changelog、ledger）中的引用保留不碰
-
-## 17. 预执行重读规则
-
-任何 Edit 前 → 重读目标行获取精确字符串。
-
-- 不信任缓存读取
-- 不假设行号未变（文件可能被外部修改）
-- 长表格行用 Read 获取原文字符串再构造 old_string
-
-## 18. 收敛标准
-
-- 连续 2 轮零新 P0/P1 发现 → **收敛**，停止 Ping-Pong，进入阶段 2（执行）
-- P2 发现若仅涉及措辞/格式且不改设计 → 记录但不阻止收敛
-- 第 5 轮后仍未收敛 → **强制停止**，标记"需人工判断"，不允许进入执行
-- 审查方连续两轮产出相同 P0 → 生成方未正确回应 → 主 agent 介入，不继续循环
-
-## 19. 失败恢复
-
-验证失败 → 不自动回滚 → 三步：
-
-1. **定位根因** — 读文件确认当前状态（非猜测）
-2. **针对性修复** — 只修失败的项，不扩大范围
-3. **重跑全部验证** — 确认修复未引入新问题
-
-部分成功的改动保留不撤。不因一项验证失败而全量回滚。
-
-## 20. 反面模式
-
-| 想法 | 现实 |
-|------|------|
-| "这计划够简单了，不用审" | 所有计划都审，简单的可能一轮过，但不能跳过 |
-| "再来一轮确保一下" | 收敛了就是收敛了，审查本身有成本 |
-| "执行时顺手改就行" | 不进计划的东西不进执行，否则不可追溯 |
-| "这个假设太明显不用写" | 所有假设显式化，不写=没发现 |
-| "一个方案就够了" | 少于最低备选数 = 未探索充分（见 §7 三步选优法） |
-| "生成方和审查方太费 token" | 多 Agent 独立视角的价值 > 单 Agent 内模拟，盲区更少 |
-| "审查方的建议我直接改就行" | 审查方只找问题不改方案；替代方案是生成方的职责 |
-| "Ping-Pong 太慢了，跳过审查直接执行" | 未经收敛的方案不可执行，跳过审查 = 跳过质量门禁 |
-
-## 21. 执行后闭环
-
-审查+执行完成后 → 如已安装 `closure-knowledge-distillation`，调用之；未安装则跳过阶段 3。
-
-- L1：单文件小改动，~20 行知识卡
-- L2：多文件审查，完整 12 节 Markdown
-- L3：可转化为独立 Skill/Workflow 的工程资产
-
-知识卡必须含：决策追溯、不改项列表、验证结果（grep 输出）。
+- Task total goal.
+- Final plan version.
+- P0/P1/P2 closure summary.
+- Non-change list.
+- Verification results.
+- Permission or capability boundaries encountered.
+- Lessons that should affect future plans.
